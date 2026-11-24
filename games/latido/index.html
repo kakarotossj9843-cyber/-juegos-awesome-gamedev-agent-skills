@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Latido</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one full-bleed canvas (the vessel), HUD floating over it, HTML overlays for title / game over.
+   Single deliberate look: the inside of a blood vessel. */
+:root {
+  --bg: #12030A;          /* deep plasma */
+  --wall: #5A0D1C;        /* vessel wall */
+  --ember: #F08A3C;       /* the iron atom, the one hero colour */
+  --oxy: #8CC8E8;         /* oxygen */
+  --ink: #F6E8DC;         /* text */
+  --dim: #B49488;         /* secondary text, warm grey */
+  --serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); overflow: hidden; touch-action: none;
+  -webkit-user-select: none; user-select: none; font-family: var(--mono); }
+#stage { position: fixed; inset: 0; }
+canvas { display: block; width: 100%; height: 100%; }
+
+.hud { position: fixed; left: 0; right: 0; top: 0; pointer-events: none;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 12px; }
+.hud .lbl { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--dim); }
+.hud .val { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hud .right { text-align: right; }
+.hud .mid { text-align: center; }
+.vit { width: min(42vw, 220px); height: 6px; border-radius: 3px; background: rgba(246,232,220,0.12); margin-top: 6px; overflow: hidden; }
+.vit > i { display: block; height: 100%; width: 100%; background: var(--oxy); transform-origin: left; transition: background .3s; }
+.mute { pointer-events: auto; position: fixed; z-index: 5; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  right: max(16px, env(safe-area-inset-right, 0px)); font: 600 11px var(--mono); letter-spacing: .2em;
+  color: var(--dim); background: rgba(18,3,10,0.6); border: 1px solid rgba(246,232,220,0.18); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
+.mute:focus-visible, .btn:focus-visible { outline: 2px solid var(--ember); outline-offset: 3px; }
+
+.overlay { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; overflow-y: auto;
+  padding-block: calc(env(safe-area-inset-top, 0px) + 24px) calc(env(safe-area-inset-bottom, 0px) + 24px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: radial-gradient(ellipse at 50% 40%, rgba(90,13,28,0.55), rgba(18,3,10,0.94) 70%); }
+.card { max-width: 34rem; display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center; }
+.eyebrow { font-size: 11px; letter-spacing: 0.32em; text-transform: uppercase; color: var(--dim); }
+h1 { margin: 0; font-family: var(--serif); font-weight: 600; font-size: clamp(64px, 17vw, 132px); letter-spacing: -0.03em; line-height: .95; }
+h1 .o { color: var(--ember); text-shadow: 0 0 40px rgba(240,138,60,.55); }
+h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 7vw, 46px); line-height: 1.1; text-wrap: balance; }
+.lede { font-family: var(--serif); font-style: italic; font-size: clamp(18px, 4.4vw, 22px); color: var(--dim); line-height: 1.4; margin: 0; text-wrap: balance; }
+.rules { display: grid; grid-template-columns: auto 1fr; gap: 10px 14px; text-align: left; font-size: 13px; line-height: 1.45; color: var(--ink); width: 100%; max-width: 27rem; }
+.rules dt { font-weight: 600; color: var(--dim); letter-spacing: .08em; white-space: nowrap; }
+.rules dd { margin: 0; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+.btn { font: 600 14px var(--mono); letter-spacing: .28em; text-transform: uppercase; color: var(--bg); background: var(--ember);
+  border: 0; border-radius: 999px; padding: 16px 34px; cursor: pointer; box-shadow: 0 0 40px rgba(240,138,60,.45); }
+.btn:active { transform: scale(.97); }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; max-width: 26rem; }
+.stats div { display: flex; flex-direction: column; gap: 4px; }
+.stats b { font-size: 26px; font-variant-numeric: tabular-nums; }
+.stats span { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); }
+.small { font-size: 12px; color: var(--dim); }
+@media (prefers-reduced-motion: reduce) { .btn { box-shadow: none; } }
+</style>
+
+<div id="stage"><canvas id="cv" aria-label="Juego Latido: un glóbulo rojo recorre un vaso sanguíneo"></canvas></div>
+
+<div class="hud" id="hud" hidden>
+  <div>
+    <div class="lbl">Oxígeno del cuerpo</div>
+    <div class="vit"><i id="vitBar"></i></div>
+  </div>
+  <div class="mid">
+    <div class="lbl" id="zoneLbl">Pulmón</div>
+    <div class="val" id="bpmVal">72 <span class="lbl">lpm</span></div>
+  </div>
+  <div class="right">
+    <div class="lbl">Entregado</div>
+    <div class="val" id="scoreVal">0</div>
+  </div>
+</div>
+<button class="mute" id="mute" type="button" hidden>Sonido: sí</button>
+
+<div class="overlay" id="title">
+  <div class="card">
+    <div class="eyebrow">Fe-56 · 1 átomo · 7.000 millones de años</div>
+    <h1>Lati<span class="o">d</span>o</h1>
+    <p class="lede">Eres un átomo de hierro dentro de un glóbulo rojo. El cuerpo depende de ti. Sigue el pulso.</p>
+    <dl class="rules">
+      <dt>Ritmo</dt><dd>Toca la pantalla o pulsa <b>Espacio</b> justo en cada latido para impulsarte. Si encadenas latidos, la música crece.</dd>
+      <dt>Mover</dt><dd>Arrastra el dedo o usa <b>← →</b> / <b>A D</b>.</dd>
+      <dt>Recoger</dt><dd><span class="dot" style="background:var(--oxy)"></span>Oxígeno en el pulmón. Llevas 4 como máximo.</dd>
+      <dt>Entregar</dt><dd><span class="dot" style="background:var(--ember)"></span>Pasa junto a las células hambrientas de las paredes.</dd>
+      <dt>Evitar</dt><dd><span class="dot" style="background:#3A0710;box-shadow:0 0 0 1px #8A2232"></span>Coágulos. Te roban oxígeno.</dd>
+    </dl>
+    <button class="btn" id="play" type="button">Empezar</button>
+    <div class="small" id="best"></div>
+  </div>
+</div>
+
+<div class="overlay" id="over" hidden>
+  <div class="card">
+    <div class="eyebrow" id="overEyebrow">Asistolia</div>
+    <h2 id="overTitle">El corazón se detuvo.</h2>
+    <div class="stats">
+      <div><b id="sScore">0</b><span>Oxígeno</span></div>
+      <div><b id="sBeats">0</b><span>Latidos</span></div>
+      <div><b id="sCombo">0</b><span>Mejor racha</span></div>
+    </div>
+    <p class="lede" id="overLine"></p>
+    <button class="btn" id="again" type="button">Otra vez</button>
+    <div class="small" id="best2"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+// ───────────────────────── setup ─────────────────────────
+const cv = document.getElementById("cv");
+const g = cv.getContext("2d");
+const $ = (id) => document.getElementById(id);
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+};
+const C = { ember: "#F08A3C", oxy: "#8CC8E8", ink: "#F6E8DC", dim: "#B49488", wall: "#5A0D1C", bg: "#12030A" };
+
+// ───────────────────────── audio (all synthesized) ─────────────────────────
+const A = { ctx: null, master: null, music: null, sfx: null, on: true };
+function initAudio() {
+  if (A.ctx) { A.ctx.resume(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  const ctx = new AC();
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+  const master = ctx.createGain(); master.gain.value = 0.9;
+  master.connect(comp); comp.connect(ctx.destination);
+  const music = ctx.createGain(); music.gain.value = 0.55; music.connect(master);
+  const sfx = ctx.createGain(); sfx.gain.value = 0.9; sfx.connect(master);
+  // shared reverb send (synthetic impulse)
+  const verb = ctx.createConvolver();
+  const len = ctx.sampleRate * 2.2, ir = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+  verb.buffer = ir; const verbGain = ctx.createGain(); verbGain.gain.value = 0.28; verb.connect(verbGain); verbGain.connect(master);
+  // low-pass on the music bus that opens with your streak
+  const tone = ctx.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = 1400; tone.Q.value = 0.5;
+  tone.connect(music);
+  const noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+  { const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  Object.assign(A, { ctx, master, music, sfx, verb, tone, noiseBuf });
+}
+const now = () => (A.ctx ? A.ctx.currentTime : performance.now() / 1000);
+
+function osc(type, freq, t, dur, gain, dest, opts = {}) {
+  const c = A.ctx; if (!c) return;
+  const o = c.createOscillator(), e = c.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  if (opts.to) o.frequency.exponentialRampToValueAtTime(opts.to, t + (opts.glide || dur));
+  if (opts.detune) o.detune.value = opts.detune;
+  const a = opts.attack || 0.005;
+  e.gain.setValueAtTime(0.0001, t);
+  e.gain.exponentialRampToValueAtTime(gain, t + a);
+  e.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(e); e.connect(dest);
+  if (opts.verb) e.connect(A.verb);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(t, dur, gain, freq, dest, q = 0.8, type = "lowpass") {
+  const c = A.ctx; if (!c) return;
+  const s = c.createBufferSource(); s.buffer = A.noiseBuf;
+  const f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const e = c.createGain();
+  e.gain.setValueAtTime(gain, t); e.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(e); e.connect(dest);
+  s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
+}
+const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+// D minor world. Progression per bar (4 beats): Dm  Bb  F  C
+const PROG = [[50, 53, 57], [46, 50, 53], [53, 57, 60], [48, 52, 55]];
+const PENTA = [62, 65, 67, 69, 72, 74, 77, 79, 81, 84, 86, 89];
+
+function heartbeat(t, interval, strength = 1) {
+  const s = A.sfx;
+  osc("sine", 68, t, 0.22, 0.75 * strength, s, { to: 42, glide: 0.18 });
+  osc("triangle", 136, t, 0.09, 0.22 * strength, s, { to: 90 });
+  noise(t, 0.035, 0.12 * strength, 2200, s);
+  const t2 = t + Math.min(0.24, interval * 0.3);
+  osc("sine", 80, t2, 0.18, 0.5 * strength, s, { to: 50, glide: 0.15 });
+  osc("triangle", 160, t2, 0.07, 0.14 * strength, s, { to: 100 });
+}
+function musicBeat(t, beatIdx, interval, layers) {
+  const bar = Math.floor(beatIdx / 4) % 4, inBar = beatIdx % 4, ch = PROG[bar];
+  const dst = A.tone;
+  // bass on every beat
+  osc("triangle", mtof(ch[0] - 12), t, interval * 0.9, 0.22, dst);
+  // pad: on bar start, a soft chord that lasts the bar
+  if (inBar === 0) for (const [i, m] of ch.entries()) {
+    osc("sawtooth", mtof(m + 12), t, interval * 4, 0.022, dst, { attack: 0.4, detune: (i - 1) * 7, verb: true });
+    osc("sine", mtof(m + 12), t, interval * 4, 0.05, dst, { attack: 0.3 });
+  }
+  // layer 2: arpeggio eighths (streak ≥ 4)
+  if (layers >= 2) for (let k = 0; k < 2; k++) {
+    const m = ch[(inBar * 2 + k) % 3] + 24;
+    osc("triangle", mtof(m), t + k * interval / 2, interval * 0.45, 0.07, dst, { verb: true });
+  }
+  // layer 3: shaker sixteenths (streak ≥ 10)
+  if (layers >= 3) for (let k = 0; k < 4; k++) noise(t + k * interval / 4, 0.05, k % 2 ? 0.05 : 0.09, 7000, dst, 1, "highpass");
+  // layer 4: high counter-melody (streak ≥ 20)
+  if (layers >= 4 && inBar % 2 === 0) osc("sine", mtof(ch[2] + 24 + (inBar ? 2 : 0)), t, interval * 1.8, 0.06, dst, { attack: 0.03, verb: true });
+}
+const sfx = {
+  perfect(combo) { if (!A.ctx) return; const t = now(); const m = PENTA[Math.min(PENTA.length - 1, combo % PENTA.length + Math.floor(combo / 12))];
+    osc("sine", mtof(m), t, 0.5, 0.2, A.sfx, { verb: true }); osc("triangle", mtof(m + 12), t, 0.18, 0.05, A.sfx); },
+  good() { if (!A.ctx) return; const t = now(); osc("sine", mtof(62), t, 0.25, 0.1, A.sfx, { verb: true }); },
+  miss() { if (!A.ctx) return; const t = now(); osc("sine", 110, t, 0.14, 0.18, A.sfx, { to: 70 }); noise(t, 0.06, 0.08, 500, A.sfx); },
+  pickup(n) { if (!A.ctx) return; const t = now(); osc("sine", 500 + n * 120, t, 0.16, 0.16, A.sfx, { to: 1100 + n * 160, glide: 0.1 });
+    osc("sine", 1800, t + 0.05, 0.06, 0.04, A.sfx); },
+  deliver(bar) { if (!A.ctx) return; const t = now(); const ch = PROG[bar % 4];
+    [0, 1, 2, 0].forEach((k, i) => osc("triangle", mtof(ch[k] + 12 + (i === 3 ? 12 : 0)), t + i * 0.055, 0.6, 0.12, A.sfx, { verb: true })); },
+  clot() { if (!A.ctx) return; const t = now(); noise(t, 0.35, 0.5, 380, A.sfx, 1.4); osc("sawtooth", 70, t, 0.3, 0.25, A.sfx, { to: 38 }); },
+  lost() { if (!A.ctx) return; const t = now(); osc("sine", mtof(57), t, 0.35, 0.12, A.sfx); osc("sine", mtof(56), t + 0.18, 0.5, 0.12, A.sfx, { verb: true }); },
+  scrape() { if (!A.ctx) return; noise(now(), 0.12, 0.08, 900, A.sfx, 3, "bandpass"); },
+  zone(lung) { if (!A.ctx) return; const t = now(); noise(t, 1.2, 0.12, lung ? 3000 : 900, A.sfx, 0.7);
+    osc("sine", lung ? mtof(74) : mtof(62), t + 0.1, 1.4, 0.07, A.sfx, { attack: 0.3, verb: true }); },
+  flatline() { if (!A.ctx) return; const t = now(); osc("sine", 988, t + 0.25, 2.6, 0.12, A.sfx, { attack: 0.01 }); },
+  tachy() { if (!A.ctx) return; const t = now(); [62, 65, 69, 74].forEach((m, i) => osc("triangle", mtof(m), t + i * 0.08, 0.5, 0.1, A.sfx, { verb: true })); },
+};
+
+// ───────────────────────── world ─────────────────────────
+const ZONE_LEN = 2600;
+const ORGANS = ["Cerebro", "Músculo", "Corazón", "Riñón"];
+const zoneInfo = (i) => i % 2 === 0 ? { lung: true, name: "Pulmón" } : { lung: false, name: ORGANS[(i >> 1) % 4] };
+const circuitOf = (i) => Math.floor(i / 8);
+const ampX = () => Math.min(W * 0.2, 130);
+const baseHW = () => Math.min(W * 0.36, 185);
+function vesselCX(wy) { return W / 2 + ampX() * (Math.sin(wy * 0.0019) * 0.62 + Math.sin(wy * 0.0043 + 1.3) * 0.38); }
+function vesselHW(wy, pulse) {
+  const zi = Math.floor(wy / ZONE_LEN), narrow = Math.max(0.72, 1 - 0.06 * circuitOf(Math.max(0, zi)));
+  return baseHW() * (0.86 + 0.14 * Math.sin(wy * 0.0031 + 2)) * narrow * (1 + 0.05 * pulse);
+}
+
+let S; // game state
+function fresh() {
+  return {
+    running: false, over: false, dist: 0, x: W / 2, targetX: W / 2, vx: 0,
+    carry: 0, score: 0, vitality: 100, combo: 0, bestCombo: 0, beats: 0,
+    bpm: 72, surge: 0, pulse: 0, shake: 0, inv: 0, lastScrape: 0,
+    ents: [], zonesSpawned: -1, zone: 0, circuit: 0, decor: [],
+    fx: [], texts: [], beatTimes: [], nextBeat: 0, beatIdx: 0, judged: new Set(),
+    keys: { l: false, r: false }, dragging: false, lastT: 0, banner: { text: "", t: -9 },
+    tStart: 0,
+  };
+}
+S = fresh();
+
+let seed = 1;
+const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+function spawnZone(i) {
+  const z = zoneInfo(i), c = circuitOf(i), y0 = i * ZONE_LEN;
+  if (i === 0) { // gentle first lung
+    for (let k = 0; k < 9; k++) S.ents.push({ k: "o2", wy: y0 + 500 + k * 220, off: Math.sin(k * 1.7) * 0.5, r: 13 });
+    return;
+  }
+  if (z.lung) {
+    const n = 8 + (rnd() * 3 | 0);
+    for (let k = 0; k < n; k++) S.ents.push({ k: "o2", wy: y0 + 250 + k * (ZONE_LEN - 400) / n, off: (rnd() * 2 - 1) * 0.7, r: 13 });
+    for (let k = 0; k < Math.min(4, c); k++) S.ents.push({ k: "clot", wy: y0 + 400 + rnd() * (ZONE_LEN - 600), off: (rnd() * 2 - 1) * 0.5, r: 20 + rnd() * 8, ph: rnd() * 6 });
+  } else {
+    const n = 5 + Math.min(5, c);
+    for (let k = 0; k < n; k++) S.ents.push({ k: "cell", wy: y0 + 260 + k * (ZONE_LEN - 400) / n, side: rnd() < 0.5 ? -1 : 1, fed: false, r: 26, t: 0 });
+    for (let k = 0; k < 2 + Math.min(5, c * 2); k++) S.ents.push({ k: "clot", wy: y0 + 300 + rnd() * (ZONE_LEN - 500), off: (rnd() * 2 - 1) * 0.55, r: 18 + rnd() * 10, ph: rnd() * 6 });
+    for (let k = 0; k < 2; k++) S.ents.push({ k: "o2", wy: y0 + 600 + rnd() * (ZONE_LEN - 900), off: (rnd() * 2 - 1) * 0.6, r: 13 });
+  }
+}
+function entPos(e) {
+  const p = S.pulse, hw = vesselHW(e.wy, p), cx = vesselCX(e.wy);
+  if (e.k === "cell") return { x: cx + e.side * (hw + 6), y: e.wy };
+  return { x: cx + e.off * hw * 0.8 + (e.k === "clot" ? Math.sin(performance.now() / 700 + e.ph) * 14 : 0), y: e.wy };
+}
+const PY = () => H * 0.7;                    // player screen y
+const toScreenY = (wy) => PY() - (wy - S.dist);
+
+// ───────────────────────── beats ─────────────────────────
+const interval = () => 60 / S.bpm;
+function scheduler() {
+  if (!S.running) return;
+  const ahead = now() + 0.15;
+  while (S.nextBeat < ahead) {
+    const t = S.nextBeat, i = S.beatIdx;
+    S.beatTimes.push({ t, i, applied: false });
+    if (A.ctx && A.on) {
+      heartbeat(t, interval());
+      musicBeat(t, i, interval(), 1 + (S.combo >= 4) + (S.combo >= 10) + (S.combo >= 20));
+    }
+    S.beatIdx++;
+    S.nextBeat += interval();
+  }
+  if (S.beatTimes.length > 16) S.beatTimes.splice(0, S.beatTimes.length - 16);
+}
+setInterval(scheduler, 25);
+
+function judgeTap() {
+  if (!S.running) return;
+  const t = now();
+  let best = null;
+  for (const b of S.beatTimes) if (!best || Math.abs(b.t - t) < Math.abs(best.t - t)) best = b;
+  if (!best) return;
+  const d = Math.abs(best.t - t);
+  if (S.judged.has(best.i)) { // double tap on the same beat
+    breakCombo("¡Ya!"); return;
+  }
+  if (d < 0.085) {
+    S.judged.add(best.i); S.combo++; S.bestCombo = Math.max(S.bestCombo, S.combo);
+    S.surge += 120; S.score += 1; sfx.perfect(S.combo);
+    ring(S.x, PY(), C.ember, 1); popText("PERFECTO", C.ember);
+  } else if (d < 0.16) {
+    S.judged.add(best.i); S.combo++; S.bestCombo = Math.max(S.bestCombo, S.combo);
+    S.surge += 60; sfx.good(); ring(S.x, PY(), C.ink, 0.6); popText("BIEN", C.ink);
+  } else breakCombo("FUERA DE RITMO");
+}
+function breakCombo(label) {
+  if (S.combo >= 4) popText(label, C.dim);
+  S.combo = 0; S.surge = Math.max(0, S.surge - 60); sfx.miss();
+}
+
+// ───────────────────────── fx ─────────────────────────
+function ring(x, y, col, s) { S.fx.push({ k: "ring", x, y, col, s, t: 0 }); }
+function burst(x, y, col, n, sp = 160) {
+  for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, v = sp * (0.4 + Math.random());
+    S.fx.push({ k: "p", x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, col, t: 0, life: 0.5 + Math.random() * 0.4 }); }
+}
+function popText(text, col, y) { S.texts.push({ text, col, t: 0, y: y ?? PY() - 70 }); if (S.texts.length > 3) S.texts.shift(); }
+function addShake(a) { S.shake = Math.min(1, S.shake + (reduceMotion ? a * 0.3 : a)); }
+
+// ───────────────────────── update ─────────────────────────
+function update(dt) {
+  const t = now();
+  // beats that just landed: blood surges, the vessel pulses
+  for (const b of S.beatTimes) if (!b.applied && b.t <= t) {
+    b.applied = true; S.beats++; S.surge += 150; S.pulse = 1;
+    if (b.i > 2 && !S.judged.has(b.i - 1) && S.combo > 0 && t - S.tStart > 3) { S.combo = 0; } // skipped a beat
+  }
+  S.pulse *= Math.exp(-dt * 6);
+  S.surge *= Math.exp(-dt * 3.2);
+  const speed = 150 + S.bpm * 1.55 + S.surge;
+  S.dist += speed * dt;
+
+  // zones
+  const zi = Math.floor(S.dist / ZONE_LEN);
+  while (S.zonesSpawned < zi + 1) spawnZone(++S.zonesSpawned);
+  if (zi !== S.zone) {
+    S.zone = zi; const z = zoneInfo(zi);
+    S.banner = { text: z.name, t: 0, lung: z.lung }; sfx.zone(z.lung);
+    $("zoneLbl").textContent = z.name;
+    const c = circuitOf(zi);
+    if (c !== S.circuit) { S.circuit = c; S.bpm = Math.min(150, 72 + c * 12); sfx.tachy(); popText(`Vuelta ${c + 1} · ${S.bpm} lpm`, C.ink, H * 0.35); }
+  }
+  S.banner.t += dt;
+
+  // steering
+  const k = (S.keys.r ? 1 : 0) - (S.keys.l ? 1 : 0);
+  if (k) S.targetX = S.x + k * 220;
+  const prevX = S.x;
+  S.x += (S.targetX - S.x) * Math.min(1, dt * (S.dragging ? 14 : 8));
+  S.vx = (S.x - prevX) / Math.max(dt, 1e-3);
+  const cx = vesselCX(S.dist), hw = vesselHW(S.dist, S.pulse) - 20;
+  if (S.x < cx - hw || S.x > cx + hw) {
+    S.x = Math.max(cx - hw, Math.min(cx + hw, S.x)); S.targetX = S.x;
+    S.surge *= 0.9; S.vitality -= dt * 3;
+    if (t - S.lastScrape > 0.25) { S.lastScrape = t; sfx.scrape(); addShake(0.12); }
+  }
+
+  // entities
+  S.inv = Math.max(0, S.inv - dt);
+  for (const e of S.ents) {
+    if (e.dead) continue;
+    const p = entPos(e), sy = toScreenY(p.y), dx = p.x - S.x, dy = sy - PY(), d = Math.hypot(dx, dy);
+    if (e.k === "o2" && d < e.r + 20 && S.carry < 4) { e.dead = true; S.carry++; sfx.pickup(S.carry); burst(p.x, sy, C.oxy, 8, 120); }
+    if (e.k === "cell" && !e.fed) {
+      if (d < e.r + 48 && S.carry > 0) {
+        e.fed = true; e.t = 0; S.carry--; const mult = 1 + Math.min(7, Math.floor(S.combo / 4));
+        S.score += 10 * mult; S.vitality = Math.min(100, S.vitality + 6);
+        sfx.deliver(Math.floor(S.beatIdx / 4)); burst(p.x, sy, C.ember, 16, 200); ring(p.x, sy, C.ember, 1.3);
+        popText(mult > 1 ? `+${10 * mult}  ×${mult}` : "+10", C.ember, sy - 40);
+      } else if (sy > H + 40) { e.fed = true; e.lost = true; S.vitality -= 9; sfx.lost(); popText("Célula perdida", C.dim, H - 120); }
+    }
+    if (e.k === "clot" && d < e.r + 16 && S.inv <= 0) {
+      S.inv = 1.0; S.vitality -= 10; addShake(0.7); sfx.clot(); burst(S.x, PY(), "#8A2232", 18, 220);
+      if (S.carry > 0) { S.carry--; popText("−1 O₂", C.oxy); }
+      S.combo = 0; S.surge = 0;
+    }
+    if (sy > H + 200) e.dead = true;
+  }
+  if (S.ents.length > 220) S.ents = S.ents.filter((e) => !e.dead);
+  S.vitality -= dt * (0.45 + S.circuit * 0.12);
+  if (S.vitality <= 0) return gameOver();
+
+  // decor cells and plasma
+  if (S.decor.length < 26 && Math.random() < dt * 8) S.decor.push({ wy: S.dist + H * 0.4 + Math.random() * 300, off: Math.random() * 2 - 1, r: 10 + Math.random() * 16, rel: 0.55 + Math.random() * 0.7, rot: Math.random() * 6, depth: Math.random() });
+  for (const d of S.decor) d.wy += (1 - d.rel) * (150 + S.bpm * 1.55 + S.surge) * dt;
+  S.decor = S.decor.filter((d) => toScreenY(d.wy) < H + 60);
+  for (const f of S.fx) { f.t += dt; if (f.k === "p") { f.x += f.vx * dt; f.y += f.vy * dt; f.vx *= 0.94; f.vy *= 0.94; } }
+  S.fx = S.fx.filter((f) => f.t < (f.k === "ring" ? 0.6 : f.life));
+  for (const tx of S.texts) tx.t += dt;
+  S.texts = S.texts.filter((tx) => tx.t < 0.9);
+  S.shake = Math.max(0, S.shake - dt * 1.6);
+
+  // HUD
+  $("scoreVal").textContent = S.score;
+  $("bpmVal").firstChild.textContent = S.bpm + " ";
+  const vb = $("vitBar"); vb.style.transform = `scaleX(${Math.max(0, S.vitality) / 100})`;
+  vb.style.background = S.vitality < 30 ? "#E0543C" : C.oxy;
+}
+
+// ───────────────────────── draw ─────────────────────────
+function drawCell(x, y, r, rot, alpha, squash = 1) {
+  g.save(); g.translate(x, y); g.rotate(rot); g.scale(1, squash); g.globalAlpha = alpha;
+  const gr = g.createRadialGradient(0, 0, r * 0.1, 0, 0, r);
+  gr.addColorStop(0, "#5E0A14"); gr.addColorStop(0.35, "#8A1620"); gr.addColorStop(0.68, "#C2303A"); gr.addColorStop(0.9, "#9A1C26"); gr.addColorStop(1, "rgba(80,8,16,0)");
+  g.fillStyle = gr; g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill(); g.restore();
+}
+function glow(x, y, r, col, a) {
+  const gr = g.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, col); gr.addColorStop(1, "rgba(0,0,0,0)");
+  g.globalAlpha = a; g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
+}
+function draw() {
+  const t = now(), p = S.pulse;
+  const sh = S.shake * S.shake * 14;
+  g.save();
+  g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+  if (sh) g.translate(Math.sin(t * 53) * sh, Math.cos(t * 41) * sh * 0.7);
+
+  const z = zoneInfo(Math.max(0, S.zone));
+  // vessel body
+  const step = 14;
+  const L = [], R = [];
+  for (let sy = -step; sy <= H + step; sy += step) {
+    const wy = S.dist + (PY() - sy), cx = vesselCX(wy), hw = vesselHW(wy, p);
+    L.push([cx - hw, sy]); R.push([cx + hw, sy]);
+  }
+  // outer tissue
+  g.fillStyle = "#1E040C"; g.fillRect(-20, -20, W + 40, H + 40);
+  // lumen
+  const lum = g.createLinearGradient(0, 0, W, 0);
+  const lungTint = z.lung ? 1 : 0;
+  lum.addColorStop(0, lungTint ? "#2A1030" : "#3A0814");
+  lum.addColorStop(0.5, lungTint ? "#4A1A3A" : "#5C0E1C");
+  lum.addColorStop(1, lungTint ? "#2A1030" : "#3A0814");
+  g.fillStyle = lum; g.beginPath();
+  L.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+  for (let i = R.length - 1; i >= 0; i--) g.lineTo(R[i][0], R[i][1]);
+  g.closePath(); g.fill();
+  // walls
+  for (const side of [L, R]) {
+    g.strokeStyle = "#7A1626"; g.lineWidth = 14 + p * 6; g.globalAlpha = 0.9; g.beginPath();
+    side.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
+    g.strokeStyle = "#C2465A"; g.lineWidth = 2; g.globalAlpha = 0.35 + p * 0.4; g.stroke(); g.globalAlpha = 1;
+  }
+  // wall striations scrolling (sells the speed)
+  g.strokeStyle = "rgba(246,232,220,0.06)"; g.lineWidth = 2;
+  for (let k = 0; k < 18; k++) {
+    const wy = Math.floor(S.dist / 90) * 90 + (k - 4) * 90, sy = toScreenY(wy);
+    const cx = vesselCX(wy), hw = vesselHW(wy, p);
+    g.beginPath(); g.moveTo(cx - hw + 10, sy); g.lineTo(cx - hw + 34, sy - 8); g.moveTo(cx + hw - 10, sy); g.lineTo(cx + hw - 34, sy - 8); g.stroke();
+  }
+  // beat flash
+  if (p > 0.02) { g.fillStyle = `rgba(200,40,60,${p * 0.12})`; g.fillRect(0, 0, W, H); }
+
+  // background cells (depth)
+  for (const d of S.decor) {
+    const sy = toScreenY(d.wy), cx = vesselCX(d.wy), hw = vesselHW(d.wy, p);
+    drawCell(cx + d.off * hw * 0.85, sy, d.r * (0.7 + d.depth * 0.5), d.rot + t * 0.3, 0.25 + d.depth * 0.35, 0.7);
+  }
+
+  // entities
+  for (const e of S.ents) {
+    if (e.dead) continue;
+    const pos = entPos(e), sy = toScreenY(pos.y);
+    if (sy < -60 || sy > H + 60) continue;
+    if (e.k === "o2") {
+      glow(pos.x, sy, 34, "rgba(140,200,232,0.55)", 0.8);
+      g.fillStyle = C.oxy; g.beginPath(); g.arc(pos.x - 5, sy, 7, 0, Math.PI * 2); g.arc(pos.x + 6, sy + 1, 7, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "rgba(255,255,255,0.7)"; g.beginPath(); g.arc(pos.x - 7, sy - 3, 2.2, 0, Math.PI * 2); g.fill();
+    } else if (e.k === "cell") {
+      e.t += 1 / 60;
+      const fedA = e.fed && !e.lost ? Math.min(1, e.t * 2) : 0;
+      const hunger = !e.fed ? 0.5 + 0.5 * Math.sin(t * 6 + e.wy) : 0;
+      g.save(); g.translate(pos.x, sy);
+      // nucleus body
+      g.fillStyle = e.lost ? "#2A1418" : fedA ? "#7A3A1E" : "#3A1A1E";
+      g.strokeStyle = e.lost ? "#4A2A2E" : fedA ? C.ember : "#9A5A4A"; g.lineWidth = 3;
+      g.beginPath();
+      for (let a = 0; a <= 12; a++) { const ang = a / 12 * Math.PI * 2, rr = e.r * (1 + 0.08 * Math.sin(ang * 3 + t * 2)); g[a ? "lineTo" : "moveTo"](Math.cos(ang) * rr, Math.sin(ang) * rr); }
+      g.closePath(); g.fill(); g.stroke();
+      g.fillStyle = fedA ? C.ember : "#6A3A32"; g.beginPath(); g.arc(0, 0, e.r * 0.32, 0, Math.PI * 2); g.fill();
+      g.restore();
+      if (!e.fed) { // hunger ring calling you
+        g.strokeStyle = `rgba(240,138,60,${0.25 + hunger * 0.45})`; g.lineWidth = 2; g.setLineDash([4, 6]);
+        g.beginPath(); g.arc(pos.x, sy, e.r + 14 + hunger * 6, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+      } else if (fedA) glow(pos.x, sy, 70, "rgba(240,138,60,0.5)", fedA * 0.5);
+    } else if (e.k === "clot") {
+      g.save(); g.translate(pos.x, sy); g.rotate(t * 0.6 + e.ph);
+      g.fillStyle = "#3A0710"; g.strokeStyle = "#8A2232"; g.lineWidth = 2; g.beginPath();
+      for (let a = 0; a < 18; a++) { const ang = a / 18 * Math.PI * 2, rr = e.r * (a % 2 ? 0.62 : 1.05 + 0.1 * Math.sin(t * 3 + a)); g[a ? "lineTo" : "moveTo"](Math.cos(ang) * rr, Math.sin(ang) * rr); }
+      g.closePath(); g.fill(); g.stroke();
+      g.strokeStyle = "rgba(246,232,220,0.18)"; g.lineWidth = 1; // fibrin threads
+      for (let a = 0; a < 4; a++) { g.beginPath(); g.moveTo(-e.r * 0.6, (a - 1.5) * 5); g.lineTo(e.r * 0.6, (1.5 - a) * 6); g.stroke(); }
+      g.restore();
+    }
+  }
+
+  // approach ring: tells you when the next beat lands
+  if (S.running) {
+    const nb = S.beatTimes.find((b) => b.t > t);
+    if (nb) {
+      const k = Math.max(0, Math.min(1, (nb.t - t) / interval()));
+      g.strokeStyle = `rgba(246,232,220,${0.15 + (1 - k) * 0.55})`; g.lineWidth = 2;
+      g.beginPath(); g.arc(S.x, PY(), 26 + k * 70, 0, Math.PI * 2); g.stroke();
+    }
+  }
+  // player cell with the iron atom
+  const lean = Math.max(-0.5, Math.min(0.5, S.vx / 900));
+  const blink = S.inv > 0 && Math.floor(S.inv * 12) % 2 === 0;
+  if (!blink) {
+    drawCell(S.x, PY(), 26 * (1 + p * 0.08), lean, 1, 0.9 - Math.abs(lean) * 0.2);
+    g.strokeStyle = "rgba(246,232,220,0.5)"; g.lineWidth = 1.5; g.beginPath(); g.ellipse(S.x, PY(), 24, 21.5, lean, 0, Math.PI * 2); g.stroke();
+    glow(S.x, PY(), 34 + p * 14, "rgba(240,138,60,0.7)", 0.9);
+    g.fillStyle = "#FFF1E0"; g.beginPath(); g.arc(S.x, PY(), 5 + p * 1.5, 0, Math.PI * 2); g.fill();
+    // carried oxygen orbiting
+    for (let i = 0; i < S.carry; i++) {
+      const a = t * 2.4 + i / 4 * Math.PI * 2, ox = S.x + Math.cos(a) * 40, oy = PY() + Math.sin(a) * 34;
+      glow(ox, oy, 14, "rgba(140,200,232,0.6)", 0.8); g.fillStyle = C.oxy; g.beginPath(); g.arc(ox, oy, 5, 0, Math.PI * 2); g.fill();
+    }
+  }
+  // fx
+  for (const f of S.fx) {
+    if (f.k === "ring") { const k = f.t / 0.6; g.strokeStyle = f.col; g.globalAlpha = 1 - k; g.lineWidth = 3 * (1 - k) + 1;
+      g.beginPath(); g.arc(f.x, f.y, 26 + k * 90 * f.s, 0, Math.PI * 2); g.stroke(); g.globalAlpha = 1; }
+    else { g.globalAlpha = 1 - f.t / f.life; g.fillStyle = f.col; g.beginPath(); g.arc(f.x, f.y, 2.4, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
+  }
+  g.restore();
+
+  // floating text
+  g.textAlign = "center";
+  for (const tx of S.texts) {
+    const k = tx.t / 0.9, e = 1 - Math.pow(1 - Math.min(1, tx.t * 4), 3);
+    g.globalAlpha = 1 - Math.max(0, (k - 0.6) / 0.4);
+    g.font = `600 ${Math.round(13 + e * 3)}px "JetBrains Mono", monospace`; g.fillStyle = tx.col;
+    g.fillText(tx.text, W / 2 + (tx.y < PY() - 50 && tx.y > PY() - 90 ? 0 : 0), tx.y - e * 18);
+  }
+  g.globalAlpha = 1;
+  // combo
+  if (S.combo >= 2) {
+    g.font = `600 12px "JetBrains Mono", monospace`; g.fillStyle = C.dim; g.textAlign = "center";
+    const mult = 1 + Math.min(7, Math.floor(S.combo / 4));
+    g.fillText(`RACHA ${S.combo}${mult > 1 ? "  ·  ×" + mult : ""}`, S.x, PY() + 64);
+  }
+  // zone banner
+  if (S.banner.t < 2.4 && S.banner.text) {
+    const b = S.banner.t, a = Math.min(1, b * 3) * Math.min(1, (2.4 - b) * 2.5);
+    g.globalAlpha = a; g.fillStyle = S.banner.lung ? C.oxy : C.ink; g.textAlign = "center";
+    g.font = `italic 400 ${Math.round(Math.min(56, W * 0.12))}px Fraunces, Georgia, serif`;
+    g.fillText(S.banner.text, W / 2, H * 0.3 - (1 - Math.min(1, b * 3)) * 16);
+    g.font = `600 11px "JetBrains Mono", monospace`; g.fillStyle = C.dim;
+    g.fillText(S.banner.lung ? "RECOGE OXÍGENO" : "ALIMENTA LAS CÉLULAS", W / 2, H * 0.3 + 30);
+    g.globalAlpha = 1;
+  }
+  // ECG strip at the bottom: shows the rhythm you are chasing
+  drawECG(t);
+}
+function drawECG(t) {
+  const y0 = H - 46;
+  const head = Math.min(W * 0.78, W - 150), pps = 160;
+  g.strokeStyle = "rgba(140,200,232,0.55)"; g.lineWidth = 2; g.beginPath();
+  let first = true;
+  for (let x = 16; x <= head; x += 3) {
+    const tt = t - (head - x) / pps; let v = 0;
+    for (const b of S.beatTimes) { const d = tt - b.t; if (d > -0.02 && d < 0.12) v = d < 0.015 ? -d * 400 : d < 0.04 ? -6 + (d - 0.015) * 1400 : d < 0.07 ? 29 - (d - 0.04) * 1100 : 0; }
+    g[first ? "moveTo" : "lineTo"](x, y0 - v * 0.7); first = false;
+  }
+  g.stroke();
+  g.fillStyle = C.oxy; g.beginPath(); g.arc(head, y0, 3.5, 0, Math.PI * 2); g.fill();
+}
+
+// ───────────────────────── loop / states ─────────────────────────
+let raf = 0, last = 0;
+function frame(ts) {
+  const dt = Math.min(0.05, (ts - last) / 1000 || 0.016); last = ts;
+  if (S.running) update(dt);
+  draw();
+  raf = requestAnimationFrame(frame);
+}
+function start() {
+  initAudio();
+  seed = 1 + Math.floor(Math.random() * 1e6);
+  S = fresh(); S.running = true; S.x = S.targetX = vesselCX(0);
+  S.nextBeat = now() + 0.6; S.tStart = now();
+  S.banner = { text: "Pulmón", t: 0, lung: true }; $("zoneLbl").textContent = "Pulmón";
+  $("title").hidden = true; $("over").hidden = true; $("hud").hidden = false; $("mute").hidden = false;
+  sfx.zone(true);
+  try { navigator.wakeLock?.request("screen").catch(() => {}); } catch (e) {}
+}
+function gameOver() {
+  S.running = false; S.over = true; S.vitality = 0;
+  sfx.flatline();
+  const best = Math.max(S.score, +(store.get("latido.best") || 0)); store.set("latido.best", String(best));
+  $("sScore").textContent = S.score; $("sBeats").textContent = S.beats; $("sCombo").textContent = S.bestCombo;
+  const lines = [
+    `Recorriste ${S.circuit + 1} ${S.circuit ? "vueltas" : "vuelta"} al cuerpo. Tu hierro volverá a una estrella algún día.`,
+    `${S.beats} latidos. Un corazón real da 100.000 al día, sin pedir nada a cambio.`,
+    `Cada célula que alimentaste pensó, se movió o latió gracias a ti.`,
+  ];
+  $("overLine").textContent = lines[(S.score + S.beats) % lines.length];
+  $("best2").textContent = `Récord en este dispositivo: ${best}`;
+  setTimeout(() => { $("over").hidden = false; $("again").focus(); }, 1400);
+}
+const bestStored = +(store.get("latido.best") || 0);
+if (bestStored) $("best").textContent = `Récord en este dispositivo: ${bestStored}`;
+
+// demo state behind the title so the first frame already shows the world
+S.ents.push({ k: "o2", wy: 380, off: -0.4, r: 13 }, { k: "o2", wy: 620, off: 0.3, r: 13 }, { k: "clot", wy: 820, off: 0.2, r: 22, ph: 1 }, { k: "cell", wy: 1000, side: 1, fed: false, r: 26, t: 0 });
+S.zonesSpawned = 99; S.carry = 2;
+(function demoTick() { if (!S.running && !S.over) { S.dist += 1.2; S.pulse = Math.max(S.pulse * 0.95, (performance.now() / 833 % 1) < 0.05 ? 1 : 0); requestAnimationFrame(demoTick); } })();
+
+// ───────────────────────── input ─────────────────────────
+$("play").addEventListener("click", start);
+$("again").addEventListener("click", start);
+$("mute").addEventListener("click", (ev) => {
+  ev.stopPropagation(); A.on = !A.on;
+  if (A.master) A.master.gain.setTargetAtTime(A.on ? 0.9 : 0, now(), 0.05);
+  $("mute").textContent = A.on ? "Sonido: sí" : "Sonido: no";
+});
+cv.addEventListener("pointerdown", (e) => {
+  if (!S.running) return;
+  e.preventDefault(); cv.setPointerCapture?.(e.pointerId);
+  S.dragging = true; S.dragX0 = e.clientX; S.playerX0 = S.x;
+  judgeTap();
+});
+cv.addEventListener("pointermove", (e) => {
+  if (!S.dragging || !S.running) return;
+  S.targetX = S.playerX0 + (e.clientX - S.dragX0) * 1.25;
+});
+const endDrag = () => { S.dragging = false; };
+cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+addEventListener("keydown", (e) => {
+  if (e.repeat) { if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD"].includes(e.code)) e.preventDefault(); return; }
+  if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
+    e.preventDefault();
+    if (!S.running) { if (!$("title").hidden || !$("over").hidden) { if (document.activeElement?.tagName !== "BUTTON") start(); } return; }
+    judgeTap();
+  }
+  if (e.code === "ArrowLeft" || e.code === "KeyA") { S.keys.l = true; e.preventDefault(); }
+  if (e.code === "ArrowRight" || e.code === "KeyD") { S.keys.r = true; e.preventDefault(); }
+  if (e.code === "KeyM") $("mute").click();
+});
+addEventListener("keyup", (e) => {
+  if (e.code === "ArrowLeft" || e.code === "KeyA") S.keys.l = false;
+  if (e.code === "ArrowRight" || e.code === "KeyD") S.keys.r = false;
+});
+document.addEventListener("visibilitychange", () => {
+  if (!A.ctx) return;
+  if (document.hidden) { A.ctx.suspend(); }
+  else { A.ctx.resume(); if (S.running) { S.nextBeat = Math.max(S.nextBeat, now() + 0.3); } }
+});
+
+raf = requestAnimationFrame(frame);
+window.__latido = { get S() { return S; }, start, judgeTap, now }; // for automated tests
+})();
+</script>
+
+</body>
+</html>
